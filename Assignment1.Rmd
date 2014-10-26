@@ -1,0 +1,137 @@
+---
+title: "Machine Learning Assignment"
+author: "Emily Jones"
+output: html_document
+---
+
+## Project Goal
+
+I will apply Machine Learning techniques to predict the manner in which a study participant performed weight lifting exercises.
+
+I am using data from an existing study. Citation for this dataset is
+
+Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.
+
+Read more: http://groupware.les.inf.puc-rio.br/har#ixzz3HCvitx6t
+
+
+## Data Processing
+
+### First load the data, and any libraries needed for analysis
+
+```{r load}
+library(caret)
+library(AppliedPredictiveModeling)
+library(ggplot2)
+library(randomForest)
+library(RCurl)
+
+pml.testing <- read.csv(url("http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"))
+pml.training <- read.csv(url("http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"))
+
+```
+
+### Reduce the variables I am looking at.
+Remove
+
+* non-numeic columns
+* columns with missing data
+* first 7 columns with timesstamp and other data not pertinent
+
+Add the classe column back in (It is at column 160)
+
+```{r reduce}
+# Table is sparse, choose only numeric with no missing values, exclude for 7 columns with datestamps and # windows. They will not affect the result
+
+nums <- sapply(pml.training, is.numeric)
+miss<-sapply(pml.training,function(x) any(is.na(x)))
+
+which(colnames(training)=="classe")
+
+cols<-nums & !miss
+cols[160]<-TRUE
+cols[1:7]<-FALSE
+
+# subtrain is now the columns from pml.training I am interested
+subtrain <-pml.training[,cols]
+
+```
+## Fitting a model
+I  used a Random Tree Model on the remaining columns. Random Forests do well with prediction and give
+estimates of what variables are of most importance. They are also not sensitive to overfitting
+
+### Create training and testing subsets from reduced training data
+
+In order to see how accurately the  proposed model will generalize to the independent testing data set (cross-validation), the data is partitioned into a training subset and validation subset, using a 75/25 split.
+
+I fit the Random Forest model against the training subset
+
+```{r fit}
+inTrain = createDataPartition(subtrain$classe, p = 3/4)[[1]]
+training = subtrain[ inTrain,]
+testing = subtrain[-inTrain,]
+
+fit <- randomForest(training$classe ~ ., data=training, importance = TRUE)
+
+print(fit)
+
+```
+
+### Evaluate model against the testing subset
+
+```{r test}
+confusionMatrix(testing$classe,predict(fit,testing))
+
+```
+
+## Interpretation of the Model
+
+The model seems to be quite accurate. The out of sample error rate is .49% 
+(see OOB estimate of error rate above) and the accuracy of the testing subset (99.5%)
+
+Now use Random Tree tools to evaluate most influential factor. 
+
+```{r interpret}
+varImpPlot(fit)
+```
+
+The top factors seem to be
+roll_belt, yaw_belt, pitch_forearm adn magnet_dumbell_z
+
+```{r plot}
+qplot(yaw_belt,roll_belt,colour=classe,data=training)
+qplot(magnet_dumbbell_z,pitch_belt,colour=classe,data=training)
+
+```
+
+I see a clear clustering of the response with these factors.
+
+ The coding for the responses: A-E is as follows:
+
+Six young health participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in five different fashions:
+
+A: exactly according to the specification
+B: throwing the elbows to the front
+C: lifting the dumbbell only halfway
+D: lowering the dumbbell only halfway
+E: throwing the hips to the front
+
+## Make predictions against the test set
+
+```{r answers}
+subtesting <- pml.testing[,cols]
+
+answers = predict(fit, subtesting)
+
+print(answers)
+
+pml_write_files = function(x){
+    n = length(x)
+    for(i in 1:n){
+        filename = paste0("problem_id_",i,".txt")
+        write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+    }
+}
+
+pml_write_files(answers)
+```
